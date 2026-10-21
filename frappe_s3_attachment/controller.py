@@ -189,6 +189,8 @@ def file_upload_to_s3(doc, method):
     """
     check and upload files to s3. the path check and
     """
+    if doc.flags.get('skip_s3_upload'):
+        return
     s3_upload = S3Operations()
     path = doc.file_url
     site_path = frappe.utils.get_site_path()
@@ -250,7 +252,7 @@ def upload_existing_files_s3(name):
         s3_upload = S3Operations()
         path = doc.file_url
         site_path = frappe.utils.get_site_path()
-        parent_doctype = doc.attached_to_doctype
+        parent_doctype = doc.attached_to_doctype or 'File'
         parent_name = doc.attached_to_name
         if not doc.is_private:
             file_path = site_path + '/public' + path
@@ -311,7 +313,17 @@ def migrate_existing_files():
     for file in files_list:
         if file['file_url']:
             if not s3_file_regex_match(file['file_url']):
-                upload_existing_files_s3(file['name'])
+                try:
+                    upload_existing_files_s3(file['name'])
+                except Exception:
+                    # One bad file must not abort the whole migration.
+                    frappe.db.rollback()
+                    frappe.log_error(
+                        title="S3 migrate: file failed",
+                        message=frappe.get_traceback(),
+                        reference_doctype='File',
+                        reference_name=file['name'],
+                    )
     return True
 
 
